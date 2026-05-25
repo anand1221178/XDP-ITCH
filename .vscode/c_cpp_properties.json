@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include",
+                "/usr/include/bpf",
+                "/usr/include/aarch64-linux-gnu", 
+                "/usr/include/x86_64-linux-gnu"
+            ],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-clang-x64"
+        }
+    ],
+    "version": 4
+}
