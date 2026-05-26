@@ -8,6 +8,8 @@
 #include <linux/udp.h>     
 #include <linux/in.h> 
 
+#define MAX_ITCH_MESSAGES 64
+
 //license declares
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -46,7 +48,7 @@ struct itch_add_order {
 
 
 // MOLDUDP hdr 20 bytes
-struct modludp64_hdr{
+struct moldudp64_hdr{
     __u8 session_id[10]; //10 bytes - for the session name
     __u64 sequence_number; //8 bytes for the packet sequence num
     __u16 message_count; //Number of ITCH messages in this packet
@@ -135,7 +137,7 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh,void *data_end,str
 
 static __always_inline int parse_moldudp64(struct hdr_cursor *nh, void *data_end, struct moldudp64_hdr **moldhdr)
 {
-    struct modludp64_hdr *mold = nh->pos;
+    struct moldudp64_hdr *mold = nh->pos;
 
     // Bounds check:
     if(mold+1 > data_end)
@@ -278,31 +280,53 @@ int xdp_itch_parser(struct xdp_md *ctx)
     }
 
     // IF WE REACH HERE WE ARE SITTING AT THE START OF THE PAYLOAD - FINALLY FFS
-    struct itch_add_order *itch_msg;
-    int msg_type;
-
-    msg_type = parse_itch_add_order(&nh, data_end, &itch_msg);
-    if(msg_type < 0)
+    for(int i = 0 ; i < MAX_ITCH_MESSAGES; i++)
     {
-        return XDP_DROP;
+        // break early if we have processed all msgs in this packet
+        if(i >= msg_count)
+        {
+            break;
+        }
+
+        // Get msg length:
+        __u16 *msg_len_ptr = nh.pos;
+        if((void*)(msg_len_ptr + 1) > data_end)
+        {
+            break; //broken packet leave loop
+        }
+
+        __u16 msg_len = bpf_ntohs(*msg_len_ptr);
+        nh.pos = msg_len_ptr + 1; //move past the 2 byte length field
+
+        // BOund check the entire message for the verifier
+        void *msg_start = nh.pos;
+        if(msg_start + msg_len > data_end)
+        {
+            break;
+        }
+
+        // read the messfaege type:
+        __u8 *msg_type_ptr = msg_start;
+
+        // if an Add order -> proc it:
+        if (*msg_type_ptr == 'A')  {
+            if ((void *)msg_start + sizeof(struct itch_add_order) > data_end)
+                break;
+            //contunue
+            struct itch_add_order *itch_msg = msg_start;
+            
+            // Hash Map Filter
+            __u16 stock_loc = bpf_ntohs(itch_msg->stock_locate);
+            __u8 *track_this_stock = bpf_map_lookup_elem(&stock_filter, &stock_loc);
+            
+            if (track_this_stock && *track_this_stock == 1) {
+                // Submit to Ring Buffer
+                submit_add_order_to_ringbuf(itch_msg);
+            }
+        }
+
+        nh.pos = msg_start + msg_len;
     }
 
-    if (msg_type != 'A')
-    {
-        return XDP_DROP;
-    }
-
-    // HASH MAP FILTER:
-    __u16 stock_loc = bpf_ntohs(itch_msg->stock_locate);
-    __u8 *track_this_stock = bpf_map_lookup_elem(&stock_filter, &stock_loc);
-    if (!track_this_stock || *track_this_stock == 0) {
-        return XDP_DROP; // We dont care about this stock
-    }
-
-    // Submit to ring buffer:
-    submit_add_order_to_ringbuf(itch_msg);
-
-
-    // Drop the packet since we have added to buff already
     return XDP_DROP;
 }
