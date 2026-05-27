@@ -170,7 +170,7 @@ static size_t build_packet(uint8_t *buf, uint64_t seq_num, uint16_t locate_code)
     return sizeof(struct ethhdr) + ip_len;
 }
 
-// Step 4: The Main Loop
+
 int main(int argc, char **argv)
 {
     if (argc != 4) {
@@ -188,22 +188,22 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // 1. Resolve Interface Index
+
     unsigned int ifindex = if_nametoindex(iface);
     if (!ifindex) {
         perror("Failed to resolve interface index");
         return 1;
     }
 
-    // 2. Open Raw Socket
-    // AF_PACKET + SOCK_RAW tells the kernel: "Give me complete control over the Ethernet frame"
+
+    // AF_PACKET + SOCK_RAW tells the kernel
     int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (sock < 0) {
         perror("Failed to create raw socket. Are you running with sudo?");
         return 1;
     }
 
-    // 3. Setup Link-Level Destination Address
+    //Setup Link-Level Destination Address
     struct sockaddr_ll sa;
     memset(&sa, 0, sizeof(sa));
     sa.sll_family = AF_PACKET;
@@ -226,7 +226,7 @@ int main(int argc, char **argv)
     printf("Interface: %s | Target: %lu msgs/sec | Locate: %u\n", iface, target_rate, locate_code);
     printf("--------------------------------------------------\n");
 
-    // 4. The Spin Loop
+    // Spin Loop
     while (1) {
         clock_gettime(CLOCK_MONOTONIC, &now);
 
@@ -237,7 +237,7 @@ int main(int argc, char **argv)
         // Calculate how many packets SHOULD have been sent by this exact nanosecond
         uint64_t expected_packets = elapsed_total_ns / ns_per_packet;
 
-        // If we are behind schedule, fire a packet instantly!
+
         if (seq_num <= expected_packets) {
             size_t frame_len = build_packet(buffer, seq_num, locate_code);
             
@@ -251,7 +251,7 @@ int main(int argc, char **argv)
             packets_this_sec++;
         }
 
-        // 5. Print Stats exactly once per second
+
         uint64_t elapsed_print_ns = (now.tv_sec - last_print.tv_sec) * 1000000000ULL + 
                                     (now.tv_nsec - last_print.tv_nsec);
         
