@@ -33,5 +33,5 @@ The project includes an automated pipeline manager to handle setup, compilation,
 1. **Clone the repository.**
 2. **Execute the pipeline**:
    ```bash
-   chmod +x run.sh
-   sudo ./run.sh
+   chmod +x benchmark.sh
+   sudo ./benchmark.sh
