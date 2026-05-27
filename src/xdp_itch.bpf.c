@@ -7,8 +7,7 @@
 #include <linux/ipv6.h> 
 #include <linux/udp.h>     
 #include <linux/in.h> 
-
-#define MAX_ITCH_MESSAGES 64
+#include "itch_common.h"
 
 //license declares
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
@@ -32,19 +31,6 @@ struct{
 struct hdr_cursor{
     void *pos;
 };
-
-struct itch_add_order {
-    __u8  msg_type;              /* 1 byte  - Always 'A' */
-    __u16 stock_locate;          /* 2 bytes - Integer ID of the stock */
-    __u16 tracking_number;       /* 2 bytes - Internal NASDAQ tracking */
-    __u8  timestamp[6];          /* 6 bytes - Nanoseconds since midnight */
-    __u64 order_ref_number;      /* 8 bytes - Unique ID for this order */
-    __u8  buy_sell_indicator;    /* 1 byte  - 'B' for Buy, 'S' for Sell */
-    __u32 shares;                /* 4 bytes - Number of shares */
-    __u8  stock[8];              /* 8 bytes - Ticker symbol (e.g., "AAPL    ") */
-    __u32 price;                 /* 4 bytes - Price (Implied 4 decimal places) */
-} __attribute__((packed)); //We need this to remove compiler optimisations of the compiler trying to 
-                            // align the vars to mem boundaries, so we dont want that padding else we are cooked, when we try to parse this
 
 
 // MOLDUDP hdr 20 bytes
@@ -288,20 +274,31 @@ int xdp_itch_parser(struct xdp_md *ctx)
             break;
         }
 
+        // Re-establish trust for verifier on every iteration
+        if(nh.pos + sizeof(__u16) > data_end) break;
+
         // Get msg length:
         __u16 *msg_len_ptr = nh.pos;
+
         if((void*)(msg_len_ptr + 1) > data_end)
         {
             break; //broken packet leave loop
         }
 
         __u16 msg_len = bpf_ntohs(*msg_len_ptr);
+        if (msg_len == 0 || msg_len > 200) {
+            break;
+        }
         nh.pos = msg_len_ptr + 1; //move past the 2 byte length field
 
         // BOund check the entire message for the verifier
-        void *msg_start = nh.pos;
+        void *msg_start = msg_len_ptr +1;
         if(msg_start + msg_len > data_end)
         {
+            break;
+        }
+
+        if (msg_start + 1 > data_end) {
             break;
         }
 
@@ -309,19 +306,52 @@ int xdp_itch_parser(struct xdp_md *ctx)
         __u8 *msg_type_ptr = msg_start;
 
         // if an Add order -> proc it:
-        if (*msg_type_ptr == 'A')  {
-            if ((void *)msg_start + sizeof(struct itch_add_order) > data_end)
-                break;
-            //contunue
+        if (*msg_type_ptr == 'A' && msg_len == sizeof(struct itch_add_order)) {
             struct itch_add_order *itch_msg = msg_start;
+            if ((void *)(itch_msg + 1) > data_end) break;
             
-            // Hash Map Filter
             __u16 stock_loc = bpf_ntohs(itch_msg->stock_locate);
             __u8 *track_this_stock = bpf_map_lookup_elem(&stock_filter, &stock_loc);
             
             if (track_this_stock && *track_this_stock == 1) {
-                // Submit to Ring Buffer
-                submit_add_order_to_ringbuf(itch_msg);
+                // Reserve exactly 36 bytes
+                void *ring_slot = bpf_ringbuf_reserve(&itch_ringbuf, sizeof(struct itch_add_order), 0);
+                if (ring_slot) {
+                    __builtin_memcpy(ring_slot, itch_msg, sizeof(struct itch_add_order));
+                    bpf_ringbuf_submit(ring_slot, 0);
+                }
+            }
+        } 
+        else if (*msg_type_ptr == 'E' && msg_len == sizeof(struct itch_execute_order)) {
+            struct itch_execute_order *itch_msg = msg_start;
+            if ((void *)(itch_msg + 1) > data_end) break;
+            
+            __u16 stock_loc = bpf_ntohs(itch_msg->stock_locate);
+            __u8 *track_this_stock = bpf_map_lookup_elem(&stock_filter, &stock_loc);
+            
+            if (track_this_stock && *track_this_stock == 1) {
+                // Reserve exactly 31 bytes
+                void *ring_slot = bpf_ringbuf_reserve(&itch_ringbuf, sizeof(struct itch_execute_order), 0);
+                if (ring_slot) {
+                    __builtin_memcpy(ring_slot, itch_msg, sizeof(struct itch_execute_order));
+                    bpf_ringbuf_submit(ring_slot, 0);
+                }
+            }
+        }
+        else if (*msg_type_ptr == 'D' && msg_len == sizeof(struct itch_delete_order)) {
+            struct itch_delete_order *itch_msg = msg_start;
+            if ((void *)(itch_msg + 1) > data_end) break;
+            
+            __u16 stock_loc = bpf_ntohs(itch_msg->stock_locate);
+            __u8 *track_this_stock = bpf_map_lookup_elem(&stock_filter, &stock_loc);
+            
+            if (track_this_stock && *track_this_stock == 1) {
+                // Reserve exactly 19 bytes
+                void *ring_slot = bpf_ringbuf_reserve(&itch_ringbuf, sizeof(struct itch_delete_order), 0);
+                if (ring_slot) {
+                    __builtin_memcpy(ring_slot, itch_msg, sizeof(struct itch_delete_order));
+                    bpf_ringbuf_submit(ring_slot, 0);
+                }
             }
         }
 

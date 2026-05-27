@@ -1,0 +1,8 @@
+Starting ITCH Simulator...
+Interface: lo | Target: 100000 msgs/sec | Locate: 15
+--------------------------------------------------
+[STATS] Achieved Rate: 100000 msgs/sec (Target: 100000)
+[STATS] Achieved Rate: 99999 msgs/sec (Target: 100000)
+[STATS] Achieved Rate: 100001 msgs/sec (Target: 100000)
+[STATS] Achieved Rate: 100000 msgs/sec (Target: 100000)
+[STATS] Achieved Rate: 100000 msgs/sec (Target: 100000)
