@@ -110,7 +110,7 @@ static size_t build_packet(uint8_t *buf, uint64_t seq_num, uint16_t locate_code)
     mold->message_count = htons(1);
 
     // ITCH payload:
-    // 6. ITCH Payload (Randomized Market Behavior)
+    //ITCH Payload (Randomized Market Behavior)
     int rand_action = rand() % 100;
     
     // Pick a random past order reference to execute or delete
